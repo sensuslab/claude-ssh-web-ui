@@ -50,8 +50,9 @@ for dir in "${DATA_HOME}" "${DATA_SSH_KEYS}" "${DATA_FAIL2BAN}" "${DATA_WORKSPAC
     fi
 done
 
-# Ownership: claude owns home and workspace, root owns the rest
-chown "${CLAUDE_USER}:${CLAUDE_USER}" "${DATA_HOME}" "${DATA_WORKSPACE}"
+# Ownership: claude owns the mount root plus user-facing app/workspace data;
+# root owns security-sensitive service stores.
+chown "${CLAUDE_USER}:${CLAUDE_USER}" "${DATA_DIR}" "${DATA_HOME}" "${DATA_WORKSPACE}" "${DATA_WEB_UI}"
 chown root:root "${DATA_SSH_KEYS}" "${DATA_FAIL2BAN}"
 
 # ==============================================================================

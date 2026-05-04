@@ -81,8 +81,10 @@ export function VoiceAgent() {
   const [voiceState, setVoiceState] = useState<VoiceState>('ready');
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [error, setError] = useState('');
+  const [isHandoffing, setIsHandoffing] = useState(false);
 
   const transcriptRef = useRef<TranscriptEntry[]>([]);
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const voiceSocketRef = useRef<WebSocket | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const captureContextRef = useRef<AudioContext | null>(null);
@@ -130,11 +132,35 @@ export function VoiceAgent() {
     setVoiceState('ready');
   }, [stopMicrophone]);
 
+  const closeOverlay = useCallback(() => {
+    stopVoice();
+    setIsHandoffing(false);
+    setOpen(false);
+  }, [stopVoice]);
+
   useEffect(() => {
     transcriptRef.current = transcript;
   }, [transcript]);
 
   useEffect(() => () => stopVoice(false), [stopVoice]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeOverlay();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [closeOverlay, open]);
+
+  useEffect(() => {
+    if (!open) return;
+    transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }, [open, transcript]);
 
   const appendTranscript = useCallback((entry: Omit<TranscriptEntry, 'id' | 'createdAt'>) => {
     setTranscript((current) => {
@@ -212,6 +238,7 @@ export function VoiceAgent() {
     stopVoice(false);
     setOpen(true);
     setError('');
+    setIsHandoffing(false);
     setTranscript([]);
     transcriptRef.current = [];
     playbackTimeRef.current = 0;
@@ -304,11 +331,6 @@ export function VoiceAgent() {
     stopVoice,
   ]);
 
-  const closeOverlay = () => {
-    stopVoice();
-    setOpen(false);
-  };
-
   const handoffTranscript = async () => {
     const captured = transcriptRef.current.filter((entry) => entry.content.trim());
     stopVoice();
@@ -324,6 +346,8 @@ export function VoiceAgent() {
       setOpen(false);
       return;
     }
+
+    setIsHandoffing(true);
 
     try {
       const handoff = await apiClient.createVoiceHandoff({
@@ -348,11 +372,14 @@ export function VoiceAgent() {
       addActivity({ label: message, tone: 'danger' });
       addConsoleEvent({ kind: 'voice', level: 'error', label: message });
     } finally {
+      setIsHandoffing(false);
       setOpen(false);
     }
   };
 
   const copy = stateCopy[voiceState];
+  const transcriptCount = transcript.length;
+  const stateSteps: VoiceState[] = ['listening', 'thinking', 'speaking'];
 
   return (
     <>
@@ -360,15 +387,27 @@ export function VoiceAgent() {
         className={cn('voice-orb-button', active && 'voice-orb-button-active')}
         onClick={startVoice}
         aria-label="Open voice agent"
+        aria-pressed={active}
         title="Voice agent"
       >
         <span className="voice-orb-glow" />
+        <span className="voice-orb-ring" />
         <Mic2 className="h-4 w-4" />
       </button>
 
       {open && (
         <div className="voice-overlay" role="dialog" aria-modal="true" aria-label="Voice agent">
           <div className="voice-modal">
+            <div className="voice-modal-header">
+              <div>
+                <p>Deepgram Voice</p>
+                <h2>Live agent channel</h2>
+              </div>
+              <span className={cn('voice-state-badge', `voice-state-badge-${voiceState}`)}>
+                {copy.label}
+              </span>
+            </div>
+
             <button className="voice-close" onClick={closeOverlay} aria-label="Close voice agent">
               <X className="h-4 w-4" />
             </button>
@@ -384,15 +423,39 @@ export function VoiceAgent() {
                   <AudioWaveform className="h-8 w-8" />
                 )}
               </div>
+              <div className="voice-meter" aria-hidden="true">
+                {Array.from({ length: 18 }).map((_, index) => (
+                  <span key={index} style={{ '--bar-index': index } as React.CSSProperties} />
+                ))}
+              </div>
+            </div>
+
+            <div className="voice-state-strip" aria-label="Voice progress">
+              {stateSteps.map((step) => (
+                <span
+                  key={step}
+                  className={cn(
+                    'voice-state-chip',
+                    voiceState === step && 'voice-state-chip-active'
+                  )}
+                >
+                  {stateCopy[step].label}
+                </span>
+              ))}
             </div>
 
             <div className="voice-status-copy">
               <p>{copy.label}</p>
-              <h2>{copy.detail}</h2>
-              {error && <span>{error}</span>}
+              <h3>{copy.detail}</h3>
+              {error && <span role="alert">{error}</span>}
             </div>
 
-            <div className="voice-transcript" aria-live="polite">
+            <div className="voice-transcript-head">
+              <span>Live transcript</span>
+              <strong>{transcriptCount} {transcriptCount === 1 ? 'turn' : 'turns'}</strong>
+            </div>
+
+            <div className="voice-transcript" aria-live="polite" aria-label="Voice transcript">
               {transcript.length === 0 ? (
                 <p className="voice-transcript-empty">Transcript will appear here.</p>
               ) : (
@@ -403,16 +466,21 @@ export function VoiceAgent() {
                   </div>
                 ))
               )}
+              <div ref={transcriptEndRef} />
             </div>
 
             <div className="voice-actions">
-              <button className="quiet-action" onClick={closeOverlay}>
+              <button className="quiet-action" onClick={closeOverlay} disabled={isHandoffing}>
                 <PhoneOff className="h-4 w-4" />
                 End
               </button>
-              <button className="primary-action" onClick={handoffTranscript} disabled={transcript.length === 0}>
-                <Send className="h-4 w-4" />
-                End & hand off
+              <button
+                className="primary-action"
+                onClick={handoffTranscript}
+                disabled={transcript.length === 0 || isHandoffing}
+              >
+                {isHandoffing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {isHandoffing ? 'Handing off' : 'End & hand off'}
               </button>
             </div>
           </div>

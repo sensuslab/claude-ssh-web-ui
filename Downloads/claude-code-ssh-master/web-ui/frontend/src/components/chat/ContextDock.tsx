@@ -37,6 +37,19 @@ const dockTabs: Array<{ id: DockTab; label: string; icon: React.ElementType }> =
   { id: 'console', label: 'Console', icon: TerminalSquare },
 ];
 
+const dataVolumeLabel = (status: ReturnType<typeof useChatStore.getState>['runtimeStatus']) => {
+  if (!status?.dataVolume) return 'Checking';
+  if (!status.dataVolume.exists) return 'Missing';
+  if (!status.dataVolume.readable) return 'Blocked';
+  return status.dataVolume.writable ? 'Writable' : 'Read only';
+};
+
+const dataVolumeTone = (status: ReturnType<typeof useChatStore.getState>['runtimeStatus']) => {
+  if (!status?.dataVolume) return 'system-value-muted';
+  if (!status.dataVolume.exists || !status.dataVolume.readable) return 'system-value-bad';
+  return status.dataVolume.writable ? 'system-value-good' : 'system-value-warn';
+};
+
 export function ContextDock() {
   const {
     addActivity,
@@ -65,6 +78,7 @@ export function ContextDock() {
   const [preview, setPreview] = useState<string>('');
   const [previewError, setPreviewError] = useState<string>('');
   const [mcpRaw, setMcpRaw] = useState('');
+  const activeRootMeta = fileRoots.find((root) => root.id === activeRoot);
 
   const selectedSkillIds = useMemo(
     () => new Set(attachments.filter((item) => item.mimeType === 'application/x-skill').map((item) => item.id)),
@@ -240,11 +254,13 @@ export function ContextDock() {
           <span>Workspace</span>
           <strong>{runtimeStatus?.workspace?.exists ? 'Mounted' : 'Unknown'}</strong>
           <span>Data</span>
-          <strong>{runtimeStatus?.dataVolume?.exists ? 'Mounted' : 'Unknown'}</strong>
+          <strong className={dataVolumeTone(runtimeStatus)}>{dataVolumeLabel(runtimeStatus)}</strong>
           <span>Safety</span>
           <strong>Confirm execute</strong>
           <span>Voice</span>
-          <strong>{runtimeStatus?.features?.voice ? 'Ready' : 'Disabled'}</strong>
+          <strong className={runtimeStatus?.features?.voice ? 'system-value-good' : 'system-value-muted'}>
+            {runtimeStatus?.features?.voice ? 'Ready' : 'Disabled'}
+          </strong>
         </div>
       </section>
 
@@ -269,6 +285,10 @@ export function ContextDock() {
             <UploadCloud className="h-4 w-4" />
             Documents & Files
           </div>
+          <div className="storage-hint">
+            <span>{activeRootMeta?.label || 'Workspace'}</span>
+            <strong title={activeRootMeta?.path}>{activeRootMeta?.path || currentPath || 'Project files'}</strong>
+          </div>
           {fileRoots.length > 0 && (
             <div className="root-switch" role="tablist" aria-label="File root">
               {fileRoots.map((root) => (
@@ -279,6 +299,7 @@ export function ContextDock() {
                   disabled={!root.exists}
                   role="tab"
                   aria-selected={activeRoot === root.id}
+                  title={root.path}
                 >
                   {root.label}
                 </button>
@@ -475,7 +496,11 @@ export function ContextDock() {
         </div>
         <div className="system-grid">
           <span>Voice</span>
-          <strong>{runtimeStatus?.features?.voice ? 'Ready' : 'Disabled'}</strong>
+          <strong className={runtimeStatus?.features?.voice ? 'system-value-good' : 'system-value-muted'}>
+            {runtimeStatus?.features?.voice ? 'Ready' : 'Disabled'}
+          </strong>
+          <span>Data</span>
+          <strong className={dataVolumeTone(runtimeStatus)}>{dataVolumeLabel(runtimeStatus)}</strong>
           <span>Motion</span>
           <strong>Adaptive</strong>
         </div>
